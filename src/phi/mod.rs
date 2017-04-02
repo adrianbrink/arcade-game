@@ -1,8 +1,14 @@
 #[macro_use]
 mod events;
 pub mod data;
+pub mod gfx;
 
 use sdl2::render::Renderer;
+use self::gfx::Sprite;
+use sdl2::pixels::Color;
+use std::collections::HashMap;
+use std::path::Path;
+use sdl2::ttf::Sdl2TtfContext;
 
 struct_events! {
     keyboard: {
@@ -21,12 +27,32 @@ struct_events! {
 pub struct Phi<'a> {
     pub events: Events,
     pub renderer: Renderer<'a>,
+    cached_fonts: HashMap<(&'static str, u16), ::sdl2::ttf::Font<'static, 'static>>,
+    font_context: Sdl2TtfContext,
 }
 
 impl<'a> Phi<'a> {
+    pub fn new(events: Events, renderer: Renderer<'a>, font_context: Sdl2TtfContext) -> Phi<'a> {
+        Phi {
+            events: events,
+            renderer: renderer,
+            cached_fonts: HashMap::new(),
+            font_context: font_context,
+        }
+    }
+
     pub fn output_size(&self) -> (f64, f64) {
         let (w, h) = self.renderer.output_size().unwrap();
         (w as f64, h as f64)
+    }
+
+    pub fn ttf_str_sprite(&mut self, text: &str, font_path: &'static str, size: u16, color: Color) -> Option<Sprite> {
+        self.font_context.load_font(Path::new(font_path), size).ok()
+            .and_then(|font| font
+                      .render(text)
+                      .blended(color).ok()
+                      .and_then(|surface| self.renderer.create_texture_from_surface(&surface).ok())
+                      .map(Sprite::new))
     }
 }
 
@@ -47,6 +73,7 @@ pub fn spawn<F>(title: &str, init: F)
     let video = sdl_context.video().unwrap();
     let mut timer = sdl_context.timer().unwrap();
     let _image_context = ::sdl2::image::init(::sdl2::image::INIT_PNG).unwrap();
+    let ttf_context = ::sdl2::ttf::init().unwrap();
 
     let window = video
         .window(title, 800, 600)
@@ -55,10 +82,10 @@ pub fn spawn<F>(title: &str, init: F)
         .build()
         .unwrap();
 
-    let mut context = Phi {
-        events: Events::new(sdl_context.event_pump().unwrap()),
-        renderer: window.renderer().accelerated().build().unwrap(),
-    };
+    let mut context = Phi::new(Events::new(sdl_context.event_pump().unwrap()),
+                               window.renderer().accelerated().build().unwrap(),
+                               ttf_context
+                      );
 
     let mut current_view = init(&mut context);
 
