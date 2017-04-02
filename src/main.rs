@@ -3,8 +3,7 @@ extern crate sdl2;
 mod phi;
 mod views;
 
-use sdl2::pixels::Color;
-use phi::Events;
+use phi::{Events, Phi, View, ViewAction};
 
 fn main() {
     println!("Hello, world!");
@@ -19,23 +18,19 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut renderer = window.renderer().accelerated().build().unwrap();
+    let mut context = Phi {
+        events: Events::new(sdl_context.event_pump().unwrap()),
+        renderer: window.renderer().accelerated().build().unwrap(),
+    };
 
-    let mut events = Events::new(sdl_context.event_pump().unwrap());
+    let mut current_view: Box<View> = Box::new(::views::DefaultView);
 
     loop {
-        events.pump();
+        context.events.pump();
 
-        if events.now.key_up == Some(true) {
-            println!("Key up works");
-            continue;
+        match current_view.render(&mut context, 0.01) {
+            ViewAction::None => context.renderer.present(),
+            ViewAction::Quit => break,
         }
-
-        if events.now.quit || events.now.key_escape == Some(true) {
-            break;
-        }
-        renderer.set_draw_color(Color::RGB(100, 0, 0));
-        renderer.clear();
-        renderer.present();
     }
 }
