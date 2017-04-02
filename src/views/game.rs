@@ -16,6 +16,9 @@ const ASTEROIDS_WIDE: usize = 21;
 const ASTEROIDS_HIGH: usize = 7;
 const ASTEROIDS_TOTAL: usize = ASTEROIDS_WIDE * ASTEROIDS_HIGH - 4;
 const ASTEROID_SIDE: f64 = 96.0;
+const BULLET_SPEED: f64 = 240.0;
+const BULLET_W: f64 = 8.0;
+const BULLET_H: f64 = 4.0;
 const DEBUG: bool = false;
 
 #[derive(Clone, Copy)]
@@ -29,6 +32,11 @@ enum ShipFrame {
     DownNorm = 6,
     DownFast = 7,
     DownSlow = 8,
+}
+
+#[derive(Clone, Copy)]
+struct RectBullet {
+    rect: Rectangle,
 }
 
 struct Ship {
@@ -46,7 +54,57 @@ struct Asteroid {
 pub struct ShipView {
     player: Ship,
     asteroid: Asteroid,
+    bullets: Vec<RectBullet>,
     bg: BgSet,
+}
+
+impl Ship {
+    fn spawn_bullets(&self) -> Vec<RectBullet> {
+        let cannons_x = self.rect.x + 30.0;
+        let cannon1_y = self.rect.y + 6.0;
+        let cannon2_y = self.rect.y + SHIP_H - 10.0;
+
+        vec![
+            RectBullet {
+                rect: Rectangle {
+                    x: cannons_x,
+                    y: cannon1_y,
+                    w: BULLET_W,
+                    h: BULLET_H,
+                }
+            },
+            RectBullet {
+                rect: Rectangle {
+                    x: cannons_x,
+                    y: cannon2_y,
+                    w: BULLET_W,
+                    h: BULLET_H,
+                }
+            }
+        ]
+    }
+}
+
+impl RectBullet {
+    fn update(mut self, phi: &mut Phi, dt: f64) -> Option<Self> {
+        let (w, _) = phi.output_size();
+        self.rect.x += BULLET_SPEED * dt;
+
+        if self.rect.x > w {
+            None
+        } else {
+            Some(self)
+        }
+    }
+
+    fn render(self, phi: &mut Phi) {
+        phi.renderer.set_draw_color(Color::RGB(230, 230, 30));
+        phi.renderer.fill_rect(self.rect.to_sdl());
+    }
+
+    fn rect(&self) -> Rectangle {
+        self.rect
+    }
 }
 
 impl Asteroid {
@@ -152,6 +210,8 @@ impl ShipView {
                 current: ShipFrame::MidNorm,
             },
 
+            bullets: vec![],
+
             asteroid: Asteroid::new(phi),
 
             bg: bg,
@@ -216,7 +276,16 @@ impl View for ShipView {
             unreachable!()
         };
 
+        self.bullets =
+            self.bullets.iter()
+            .filter_map(|bullet| bullet.update(phi, elapsed))
+            .collect();
+
         self.asteroid.update(phi, elapsed);
+
+        if phi.events.now.key_space == Some(true) {
+            self.bullets.append(&mut self.player.spawn_bullets());
+        }
 
         phi.renderer.set_draw_color(Color::RGB(0, 0, 0));
         phi.renderer.clear();
@@ -230,6 +299,10 @@ impl View for ShipView {
         }
 
         phi.renderer.copy_sprite(&self.player.sprites[self.player.current as usize], self.player.rect);
+
+        for bullet in &self.bullets {
+            bullet.render(phi);
+        }
 
         self.asteroid.render(phi);
 
