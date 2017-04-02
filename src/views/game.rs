@@ -1,15 +1,21 @@
 use phi::{Phi, View, ViewAction};
 use phi::data::Rectangle;
-use phi::gfx::{Sprite, CopySprite};
+use phi::gfx::{Sprite, CopySprite, AnimatedSprite};
 use std::path::Path;
 use std::option::Option;
 use sdl2::pixels::Color;
 use sdl2::render::{Renderer, Texture, TextureQuery};
 use sdl2::image::LoadTexture;
+use views::shared::BgSet;
 
 const PLAYER_SPEED: f64 = 180.0;
 const SHIP_W: f64 = 43.0;
 const SHIP_H: f64 = 39.0;
+const ASTEROID_PATH: &'static str = "assets/asteroid.png";
+const ASTEROIDS_WIDE: usize = 21;
+const ASTEROIDS_HIGH: usize = 7;
+const ASTEROIDS_TOTAL: usize = ASTEROIDS_WIDE * ASTEROIDS_HIGH - 4;
+const ASTEROID_SIDE: f64 = 96.0;
 const DEBUG: bool = false;
 
 #[derive(Clone, Copy)]
@@ -31,61 +37,106 @@ struct Ship {
     current: ShipFrame,
 }
 
-#[derive(Clone)]
-struct Background {
-    pos: f64,
+struct Asteroid {
+    sprite: AnimatedSprite,
+    rect: Rectangle,
     vel: f64,
-    sprite: Sprite,
 }
 
 pub struct ShipView {
     player: Ship,
-    bg_back: Background,
-    bg_middle: Background,
-    bg_front: Background,
+    asteroid: Asteroid,
+    bg: BgSet,
 }
 
-impl Background {
-    fn render(&mut self, renderer: &mut Renderer, elapsed: f64) {
-        let size = self.sprite.size();
-        self.pos += self.vel * elapsed;
-        if self.pos > size.0 {
-            self.pos -= size.0;
-        }
-
-        let (win_w, win_h) = renderer.output_size().unwrap();
-        let scale = win_h as f64 / size.1;
-
-        let mut physical_left = -self.pos * scale;
-
-        while physical_left < win_w as f64 {
-            renderer.copy_sprite(&self.sprite, Rectangle {
-                x: physical_left,
+impl Asteroid {
+    fn new(phi: &mut Phi) -> Asteroid {
+        let mut asteroid = 
+        Asteroid {
+            sprite: Asteroid::get_sprite(phi, 1.0),
+            rect: Rectangle {
+                w: 0.0,
+                h: 0.0,
+                x: 0.0,
                 y: 0.0,
-                w: size.0 * scale,
-                h: win_h as f64,
-            });
+            },
+            vel: 0.0,
+        };
 
-            physical_left += size.0 * scale;
+        asteroid.reset(phi);
+        asteroid
+    }
+
+    fn reset(&mut self, phi: &mut Phi) {
+        let (w, h) = phi.output_size();
+
+        self.sprite.set_fps(::rand::random::<f64>().abs() * 20.0 + 10.0);
+
+        self.rect = Rectangle {
+            w: ASTEROID_SIDE,
+            h: ASTEROID_SIDE,
+            x: w,
+            y: ::rand::random::<f64>().abs() * (h - ASTEROID_SIDE),
+        };
+
+        self.vel = ::rand::random::<f64>().abs() * 100.0 + 50.0;
+    }
+
+    fn update(&mut self, phi: &mut Phi, dt: f64) {
+        self.rect.x -= dt * self.vel;
+        self.sprite.add_time(dt);
+        if self.rect.x <= -ASTEROID_SIDE {
+            self.reset(phi);
         }
+    }
+
+    fn render(&mut self, phi: &mut Phi) {
+        phi.renderer.copy_sprite(&self.sprite, self.rect);
+    }
+
+    fn get_sprite(phi: &mut Phi, fps: f64) -> AnimatedSprite {
+        let asteroid_spritesheet = Sprite::load(&mut phi.renderer, ASTEROID_PATH).unwrap();
+        let mut asteroid_sprites = Vec::with_capacity(ASTEROIDS_TOTAL);
+
+        for yth in 0..ASTEROIDS_HIGH {
+            for xth in 0..ASTEROIDS_WIDE {
+                if ASTEROIDS_WIDE * yth + xth >= ASTEROIDS_TOTAL {
+                    break;
+                }
+
+                asteroid_sprites.push(
+                    asteroid_spritesheet.region(Rectangle {
+                        w: ASTEROID_SIDE,
+                        h: ASTEROID_SIDE,
+                        x: ASTEROID_SIDE * xth as f64,
+                        y: ASTEROID_SIDE * yth as f64,
+                    }).unwrap());
+            }
+        }
+
+        AnimatedSprite::with_fps(asteroid_sprites, fps)
     }
 }
 
 impl ShipView {
     pub fn new(phi: &mut Phi) -> ShipView {
+        let bg = BgSet::new(&mut phi.renderer);
+        ShipView::with_background(phi, bg)
+    }
+
+    pub fn with_background(phi: &mut Phi, bg: BgSet) -> ShipView {
+        // Get the spaceship's sprites
         let spritesheet = Sprite::load(&mut phi.renderer, "assets/spaceship.png").unwrap();
         let mut sprites = Vec::with_capacity(9);
 
         for y in 0..3 {
             for x in 0..3 {
-                sprites.push(spritesheet
-                                 .region(Rectangle {
-                                             w: SHIP_W,
-                                             h: SHIP_H,
-                                             x: SHIP_W * x as f64,
-                                             y: SHIP_H * y as f64,
-                                         })
-                                 .unwrap());
+                sprites.push(spritesheet.region(Rectangle {
+                    w: SHIP_W,
+                    h: SHIP_H,
+                    x: SHIP_W * x as f64,
+                    y: SHIP_H * y as f64,
+                }).unwrap());
             }
         }
 
@@ -100,21 +151,10 @@ impl ShipView {
                 sprites: sprites,
                 current: ShipFrame::MidNorm,
             },
-            bg_back: Background {
-                pos: 0.0,
-                vel: 20.0,
-                sprite: Sprite::load(&mut phi.renderer, "assets/starBG.png").unwrap(),
-            },
-            bg_middle: Background {
-                pos: 0.0,
-                vel: 40.0,
-                sprite: Sprite::load(&mut phi.renderer, "assets/starMG.png").unwrap(),
-            },
-            bg_front: Background {
-                pos: 0.0,
-                vel: 80.0,
-                sprite: Sprite::load(&mut phi.renderer, "assets/starFG.png").unwrap(),
-            },
+
+            asteroid: Asteroid::new(phi),
+
+            bg: bg,
         }
     }
 }
@@ -176,11 +216,13 @@ impl View for ShipView {
             unreachable!()
         };
 
+        self.asteroid.update(phi, elapsed);
+
         phi.renderer.set_draw_color(Color::RGB(0, 0, 0));
         phi.renderer.clear();
 
-        self.bg_back.render(&mut phi.renderer, elapsed);
-        self.bg_middle.render(&mut phi.renderer, elapsed);
+        self.bg.back.render(&mut phi.renderer, elapsed);
+        self.bg.middle.render(&mut phi.renderer, elapsed);
 
         if DEBUG {
             phi.renderer.set_draw_color(Color::RGB(200, 200, 50));
@@ -189,7 +231,9 @@ impl View for ShipView {
 
         phi.renderer.copy_sprite(&self.player.sprites[self.player.current as usize], self.player.rect);
 
-        self.bg_front.render(&mut phi.renderer, elapsed);
+        self.asteroid.render(phi);
+
+        self.bg.front.render(&mut phi.renderer, elapsed);
 
         ViewAction::None
     }
