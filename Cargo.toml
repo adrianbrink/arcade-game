@@ -3,5 +3,6 @@ name = "arcade-rs"
 version = "0.1.0"
 authors = ["Adrian Brink <adrian@brink-holdings.com>"]
 
-[dependencies]
-sdl2 = "0.29.0"
+[dependencies.sdl2]
+version = "0.29.0"
+features = ["image"]
